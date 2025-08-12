@@ -1,0 +1,44 @@
+// components/VideoScreen.js
+import React from 'react';
+import { View, StyleSheet, useWindowDimensions } from 'react-native';
+import { VideoView, useVideoPlayer } from 'expo-video';
+
+const src = require('../assets/minimalist.mp4');
+
+export default function VideoScreen() {
+  const { width: W, height: H } = useWindowDimensions();
+
+  const player = useVideoPlayer(src, (p) => {
+    p.loop = true;
+    p.muted = true; // helps autoplay on iOS
+    p.play();
+  });
+
+  // Rotate 90° and center: swap W/H, then offset so it fills the screen
+  const rotatedFull = React.useMemo(() => ({
+    position: 'absolute',
+    width: H,
+    height: W,
+    left: (W - H) / 2,
+    top: (H - W) / 2,
+    transform: [{ rotate: '90deg' }], // use '-90deg' if it's the wrong direction
+  }), [W, H]);
+
+  return (
+    <View style={styles.container}>
+      <VideoView
+        player={player}
+        style={rotatedFull}
+        contentFit="contain"           // show entire video (no crop)
+        nativeControls={false}
+        allowsFullscreen={false}
+        allowsPictureInPicture={false}
+        pointerEvents="none"           // ignore taps
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: 'black' },
+});

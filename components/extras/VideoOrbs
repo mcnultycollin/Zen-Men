@@ -1,0 +1,176 @@
+// components/AnimatedOrbsBackground.js
+import React, { useEffect, useRef } from 'react';
+import { View, StyleSheet, Animated, Easing, useWindowDimensions } from 'react-native';
+
+const LAP_MS = 14000;          // one full lap duration
+const PAD = 12;                // distance from screen edges
+
+// Orb look
+const HEAD_CORE = 6;           // px (small white dot)
+const HEAD_HALO = 64;          // px (soft glow around the head)
+const TAIL_STEPS = 7;          // number of trail halos
+const TAIL_GAP = 0.035;        // phase gap between each trail element
+const TAIL_MAX = 48;           // largest tail halo
+
+export default function AnimatedOrbsBackground({ children }) {
+  const { width: W, height: H } = useWindowDimensions();
+
+  // Single shared progress 0→1 (loops)
+  const p = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    p.setValue(0);
+    const anim = Animated.loop(
+      Animated.timing(p, {
+        toValue: 1,
+        duration: LAP_MS,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [p]);
+
+  // Effective travel area (keep the biggest halo inside the screen)
+  const BOX = Math.max(HEAD_HALO, TAIL_MAX); // bounding size for a halo
+  const Xmin = PAD;
+  const Xmax = W - PAD - BOX;
+  const Ymin = PAD;
+  const Ymax = H - PAD - BOX;
+
+  const wSeg = Math.max(0, Xmax - Xmin);
+  const hSeg = Math.max(0, Ymax - Ymin);
+  const P = Math.max(1, 2 * (wSeg + hSeg)); // perimeter (avoid /0)
+
+  // Distance-weighted fractions around the rectangle (no slow/fast sides)
+  const f0 = 0;
+  const f1 = wSeg / P;                  // top
+  const f2 = (wSeg + hSeg) / P;         // right
+  const f3 = (2 * wSeg + hSeg) / P;     // bottom
+  const f4 = 1;                          // left, back to start
+
+  // Build periodic input range so p and p±1 map to same point (no jump on loop)
+  const periodic = [f0, f1, f2, f3, f4, 1 + f1, 1 + f2, 1 + f3, 2];
+
+  // Map progress → transform (top→right→bottom→left)
+  const edgeTransform = (progress /* Animated.Value */) => {
+    const x = progress.interpolate({
+      inputRange: periodic,
+      outputRange: [
+        Xmin, Xmax, Xmax, Xmin, Xmin, Xmax, Xmax, Xmin, Xmin
+      ],
+      extrapolate: 'clamp',
+    });
+    const y = progress.interpolate({
+      inputRange: periodic,
+      outputRange: [
+        Ymin, Ymin, Ymax, Ymax, Ymin, Ymin, Ymax, Ymax, Ymin
+      ],
+      extrapolate: 'clamp',
+    });
+    return { transform: [{ translateX: x }, { translateY: y }] };
+  };
+
+  // Orb A head (phase 0) and B head (phase 0.5)
+  const headA = edgeTransform(p);
+  const headB = edgeTransform(Animated.add(p, 0.5));
+
+  // Helper: render a trailing halo at a negative phase offset
+  const TrailHalo = ({ progress, step }) => {
+    const phase = Animated.add(progress, -step * TAIL_GAP);
+    const tx = edgeTransform(phase);
+
+    // Size/opacity taper
+    const t = step / TAIL_STEPS; // 0..1
+    const size = TAIL_MAX * (0.35 + 0.65 * (1 - t)); // bigger behind, smaller further back
+    const alpha = 0.14 * (1 - t) ** 1.6;             // fade out along the tail
+
+    return (
+      <Animated.View pointerEvents="none" style={[styles.haloBox, tx, { width: size, height: size, borderRadius: size/2 }]}>
+        <View style={[styles.haloFill, { opacity: alpha }]} />
+      </Animated.View>
+    );
+  };
+
+  // Render all trail halos for an orb
+  const renderTrail = (progress) => {
+    const nodes = [];
+    for (let i = 1; i <= TAIL_STEPS; i++) {
+      nodes.push(<TrailHalo key={i} progress={progress} step={i} />);
+    }
+    return nodes;
+  };
+
+  return (
+    <View style={styles.root}>
+      {/* Trails first (behind heads) */}
+      {renderTrail(p /* A trail */)}
+      {renderTrail(Animated.add(p, 0.5) /* B trail */)}
+
+      {/* Orb A head (small white + glow) */}
+      <Animated.View pointerEvents="none" style={[styles.headBox, headA, { width: HEAD_HALO, height: HEAD_HALO, borderRadius: HEAD_HALO/2 }]}>
+        <View style={[styles.headGlow]} />
+        <View style={[styles.headCore]} />
+      </Animated.View>
+
+      {/* Orb B head */}
+      <Animated.View pointerEvents="none" style={[styles.headBox, headB, { width: HEAD_HALO, height: HEAD_HALO, borderRadius: HEAD_HALO/2 }]}>
+        <View style={[styles.headGlow]} />
+        <View style={[styles.headCore]} />
+      </Animated.View>
+
+      {/* Foreground UI */}
+      <View style={styles.overlay}>{children}</View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { ...StyleSheet.absoluteFillObject, backgroundColor: 'black' },
+  overlay: { ...StyleSheet.absoluteFillObject, zIndex: 1 },
+
+  // Trail halo container (positioned by transform)
+  haloBox: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  haloFill: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'white',   // white glow
+    borderRadius: 9999,
+    // iOS shadow for extra bloom (Android still gets the translucent fill)
+    shadowColor: '#FFFFFF',
+    shadowOpacity: 0.6,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 0 },
+  },
+
+  // Head (white core + stronger glow)
+  headBox: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headGlow: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'white',
+    opacity: 0.18,
+    borderRadius: 9999,
+    shadowColor: '#FFFFFF',
+    shadowOpacity: 0.9,
+    shadowRadius: 26,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  headCore: {
+    width: HEAD_CORE,
+    height: HEAD_CORE,
+    borderRadius: HEAD_CORE / 2,
+    backgroundColor: 'white',
+    shadowColor: '#FFFFFF',
+    shadowOpacity: 1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+  },
+});
