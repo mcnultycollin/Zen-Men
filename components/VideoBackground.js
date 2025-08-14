@@ -4,7 +4,7 @@ import { StyleSheet, useWindowDimensions } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 
 export default function VideoBackground({
-  source = require('../assets/flowers3_vertical.mp4'),
+  source = require('../assets/lava_vertical.mp4'),
   rotate90 = false,
   direction = 'cw',        // 'cw' or 'ccw'
   fit = 'cover',           // 'cover' | 'contain' | 'fill'
